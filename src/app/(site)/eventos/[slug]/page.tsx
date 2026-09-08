@@ -113,7 +113,7 @@ export default async function EventoPage({ params }: { params: Promise<{ slug: s
       {/* ---------- Sobre a edição ---------- */}
       <section className="section bg-white">
         <div className="container">
-          <div className="grid gap-14 lg:grid-cols-[1.4fr_1fr] lg:gap-16">
+          <div className="grid grid-cols-1 gap-14 lg:grid-cols-[1.4fr_1fr] lg:gap-16">
             <Reveal>
               <p className="eyebrow mb-4">Sobre o evento</p>
               <h2 className="text-headline text-ink-900">{edicaoAtual.title}</h2>

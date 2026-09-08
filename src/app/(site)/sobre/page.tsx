@@ -118,7 +118,7 @@ export default function SobrePage() {
       {/* ---------- Como começou ---------- */}
       <section className="section bg-white">
         <div className="container">
-          <div className="grid gap-14 lg:grid-cols-[1fr_1.05fr] lg:gap-20">
+          <div className="grid grid-cols-1 gap-14 lg:grid-cols-[1fr_1.05fr] lg:gap-20">
             <Reveal>
               <p className="eyebrow mb-4">Como tudo começou</p>
               <h2 className="text-headline text-ink-900">

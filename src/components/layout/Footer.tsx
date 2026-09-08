@@ -25,7 +25,7 @@ export function Footer() {
       />
 
       <div className="container relative py-20">
-        <div className="grid gap-14 lg:grid-cols-[1.3fr_2fr]">
+        <div className="grid grid-cols-1 gap-14 lg:grid-cols-[1.3fr_2fr]">
           <div>
             <div className="flex items-center gap-3">
               <Logo className="h-11 w-auto" />

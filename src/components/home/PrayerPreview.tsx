@@ -18,7 +18,7 @@ export function PrayerPreview({ pedidos, total }: { pedidos: PedidoPublico[]; to
       </svg>
 
       <div className="container relative">
-        <div className="grid gap-14 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16">
+        <div className="grid grid-cols-1 gap-14 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16">
           <Reveal>
             <p className="eyebrow mb-4 flex items-center gap-2.5">
               <span className="inline-block h-px w-8 bg-gold-400" aria-hidden />

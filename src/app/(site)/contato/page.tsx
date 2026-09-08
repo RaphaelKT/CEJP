@@ -30,7 +30,7 @@ export default function ContatoPage() {
 
       <section className="bg-ivory-50 pb-24">
         <div className="container">
-          <div className="grid gap-8 lg:grid-cols-[1fr_380px] lg:items-start">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_380px] lg:items-start">
             <ContactForm />
 
             <aside className="space-y-5">

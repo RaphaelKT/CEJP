@@ -47,7 +47,7 @@ export function LocationSection() {
           description="Estamos em Padre Miguel, na Zona Oeste do Rio. Toque no mapa para abrir a rota no seu aplicativo preferido — e avise a recepção que é sua primeira vez: temos um presente para você."
         />
 
-        <div className="grid gap-8 lg:grid-cols-[1.15fr_1fr]">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.15fr_1fr]">
           <Reveal className="order-2 lg:order-1">
             <div className="ring-foil h-[420px] overflow-hidden rounded-[var(--radius-card)] shadow-lift sm:h-[520px]">
               <ChurchMap

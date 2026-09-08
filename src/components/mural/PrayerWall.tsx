@@ -103,7 +103,7 @@ export function PrayerWall({
   };
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+    <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
       <div>
         <div className="mb-8">
           <PrayerComposer autenticadoComo={autenticadoComo} onCriado={() => void buscar({ reset: true })} />

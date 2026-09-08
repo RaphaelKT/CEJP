@@ -320,7 +320,7 @@ export function CheckoutWizard({
 
   /* ---------------- Assistente ---------------- */
   return (
-    <div className="grid gap-8 lg:grid-cols-[1fr_380px] lg:items-start">
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_380px] lg:items-start">
       <div>
         {/* Trilha de passos */}
         <ol className="mb-8 flex items-center gap-2">

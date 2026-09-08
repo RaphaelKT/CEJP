@@ -6,7 +6,7 @@ import { GALERIA_DEMO } from '@/lib/site/media-demo';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1fr_1.1fr]">
+    <div className="grid grid-cols-1 min-h-screen lg:grid-cols-[1fr_1.1fr]">
       {/* Painel visual */}
       <aside className="relative hidden overflow-hidden bg-ink-950 lg:block">
         <Image src={GALERIA_DEMO[1]!} alt="" fill priority sizes="50vw" className="object-cover opacity-40" />
