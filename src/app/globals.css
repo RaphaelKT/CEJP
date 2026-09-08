@@ -1,0 +1,209 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================================================
+   Design system — Missão Evangélica do Brasil
+   Branco (marfim) · Dourado · Vermelho (carmim)
+   ======================================================================== */
+
+@layer base {
+  :root {
+    --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+    --surface: 255 253 249;
+    --surface-raised: 255 255 255;
+    --surface-sunken: 248 241 227;
+    --text: 23 19 16;
+    --text-muted: 94 83 76;
+    --line: 232 229 226;
+
+    --brand-gold: 200 153 43;
+    --brand-crimson: 163 22 33;
+
+    --radius-card: 20px;
+    --header-h: 76px;
+  }
+
+  :root[data-theme='dark'] {
+    --surface: 13 10 8;
+    --surface-raised: 23 19 16;
+    --surface-sunken: 10 8 6;
+    --text: 253 249 241;
+    --text-muted: 171 162 155;
+    --line: 51 44 40;
+  }
+
+  * {
+    border-color: rgb(var(--line));
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: calc(var(--header-h) + 24px);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: rgb(var(--surface));
+    color: rgb(var(--text));
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  p { text-wrap: pretty; }
+
+  ::selection {
+    background: rgb(var(--brand-gold) / 0.25);
+    color: rgb(var(--text));
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--brand-gold));
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  /* Barra de rolagem discreta, alinhada à paleta */
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: rgb(var(--surface-sunken)); }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--brand-gold) / 0.4);
+    border-radius: 99px;
+    border: 3px solid rgb(var(--surface-sunken));
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--brand-gold) / 0.65); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* ---------- Tipografia expressiva ---------- */
+  .text-gold-foil {
+    background-image: linear-gradient(100deg, #875E1A, #C8992B 25%, #F1DC9C 45%, #D8AE41 62%, #AB7B1F 85%, #E5C468);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: sheen 8s linear infinite;
+  }
+
+  .eyebrow {
+    @apply text-2xs font-semibold uppercase tracking-[0.22em] text-crimson-700;
+  }
+
+  /* ---------- Superfícies ---------- */
+  .card {
+    @apply rounded-[var(--radius-card)] border border-ink-100/70 bg-white shadow-soft transition-all duration-500 ease-expo;
+  }
+  .card-hover {
+    @apply hover:-translate-y-1 hover:border-gold-200 hover:shadow-lift;
+  }
+
+  .glass {
+    background: rgb(255 253 249 / 0.72);
+    backdrop-filter: saturate(180%) blur(18px);
+    -webkit-backdrop-filter: saturate(180%) blur(18px);
+  }
+
+  /* Borda dourada em gradiente (mask), sem pseudo-hacks visíveis */
+  .ring-foil {
+    position: relative;
+  }
+  .ring-foil::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(140deg, #F1DC9C, #C8992B 35%, transparent 60%, #A31621);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* ---------- Botões ---------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold
+           transition-all duration-300 ease-expo disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-crimson-700 text-ivory-50 shadow-crimson hover:bg-crimson-800 hover:shadow-lift active:scale-[.98];
+  }
+  .btn-gold {
+    @apply btn text-gold-950 shadow-gold active:scale-[.98];
+    background-image: linear-gradient(120deg, #F1DC9C, #D8AE41 40%, #C8992B 70%, #E5C468);
+    background-size: 180% auto;
+  }
+  .btn-gold:hover { background-position: right center; }
+  .btn-outline {
+    @apply btn border border-ink-200 bg-transparent text-ink-800 hover:border-gold-400 hover:bg-gold-50/60;
+  }
+  .btn-ghost {
+    @apply btn text-ink-700 hover:bg-ink-50;
+  }
+
+  /* ---------- Formulários ---------- */
+  .field {
+    @apply w-full rounded-xl border border-ink-200 bg-white px-4 py-3 text-[15px] text-ink-900
+           placeholder:text-ink-300 transition-all duration-200
+           focus:border-gold-400 focus:outline-none focus:ring-4 focus:ring-gold-300/25;
+  }
+  .field-error { @apply border-crimson-500 focus:border-crimson-600 focus:ring-crimson-300/25; }
+  .label { @apply mb-1.5 block text-[13px] font-medium text-ink-700; }
+  .hint { @apply mt-1.5 text-[12.5px] text-ink-400; }
+  .error-text { @apply mt-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-crimson-700; }
+
+  /* ---------- Divisores ornamentais ---------- */
+  .rule-foil {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgb(var(--brand-gold) / 0.55), transparent);
+  }
+
+  /* ---------- Utilidades de layout ---------- */
+  .section { @apply py-20 sm:py-28; }
+  .stack-tight > * + * { margin-top: 0.5rem; }
+}
+
+@layer utilities {
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent);
+    mask-image: linear-gradient(180deg, #000 60%, transparent);
+  }
+  .mask-fade-x {
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+  .text-shadow-hero {
+    text-shadow: 0 2px 30px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.35);
+  }
+  .grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: var(--noise, none);
+    opacity: 0.035;
+    pointer-events: none;
+    mix-blend-mode: overlay;
+  }
+  .tabular { font-variant-numeric: tabular-nums; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}

@@ -1,0 +1,1542 @@
+// ============================================================================
+//  Missao Evangelica do Brasil — Modelo de dados
+//  PostgreSQL + Prisma ORM
+//
+//  Dominios: Identidade & Acesso | Congregacoes & Cultos | Presenca & Membresia
+//            Mural de Oracoes | Eventos & Inscricoes | Financeiro & Pagamentos
+//            Midia & Curadoria | Conteudo & Comunicacao | Observabilidade
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+//  1. IDENTIDADE & ACESSO
+// ============================================================================
+
+enum Role {
+  VISITANTE // conta criada, ainda sem vinculo
+  MEMBRO // promovido pela regra de frequencia
+  LIDER // lider de ministerio / celula
+  MIDIA // equipe de midia (upload de fotos)
+  TESOURARIA // financeiro, conciliacao, reembolsos
+  SECRETARIA // cadastro, presenca, membresia
+  PASTOR
+  ADMIN
+}
+
+enum MembershipStage {
+  VISITANTE // 0-1 presencas
+  FREQUENTADOR // 2-4 presencas no mes corrente
+  EM_AVALIACAO // atingiu o gatilho, aguardando confirmacao pastoral
+  MEMBRO // membro oficial
+  MEMBRO_INATIVO // membro sem presenca no periodo de carencia
+  DESLIGADO
+}
+
+enum AccountStatus {
+  PENDENTE_VERIFICACAO
+  ATIVO
+  SUSPENSO
+  BANIDO
+}
+
+enum Gender {
+  MASCULINO
+  FEMININO
+  NAO_INFORMADO
+}
+
+model User {
+  id            String        @id @default(cuid())
+  publicId      String        @unique @default(cuid()) // exposto na UI, nunca o id interno
+  email         String        @unique
+  emailVerified DateTime?
+  phone         String?       @unique
+  phoneVerified DateTime?
+  passwordHash  String?
+  fullName      String
+  socialName    String?
+  slugName      String?       @unique
+  avatarUrl     String?
+  birthDate     DateTime?     @db.Date
+  gender        Gender        @default(NAO_INFORMADO)
+  cpfHash       String?       @unique // hash, nunca o CPF em claro
+  cpfLast4      String? // apenas para conferencia visual
+  status        AccountStatus @default(PENDENTE_VERIFICACAO)
+  roles         Role[]        @default([VISITANTE])
+
+  membershipStage    MembershipStage @default(VISITANTE)
+  membershipSince    DateTime?
+  membershipNumber   String?         @unique // matricula oficial (MEB-2026-00042)
+  baptizedAt         DateTime?
+  conversionDate     DateTime?
+  discipleshipStatus String?
+
+  homeChurchId String?
+  homeChurch   Church? @relation(fields: [homeChurchId], references: [id], onDelete: SetNull)
+
+  householdId String?
+  household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
+
+  // endereco (usado tambem para pastoreio por regiao)
+  addressStreet String?
+  addressNumber String?
+  addressExtra  String?
+  neighborhood  String?
+  city          String?
+  state         String?
+  postalCode    String?
+  latitude      Float?
+  longitude     Float?
+
+  // preferencias / LGPD
+  locale                  String    @default("pt-BR")
+  timezone                String    @default("America/Sao_Paulo")
+  marketingOptIn          Boolean   @default(false)
+  whatsappOptIn           Boolean   @default(true)
+  privacyPolicyVersion    String?
+  privacyAcceptedAt       DateTime?
+  dataDeletionRequestedAt DateTime?
+
+  lastLoginAt      DateTime?
+  lastSeenAt       DateTime?
+  failedLogins     Int       @default(0)
+  lockedUntil      DateTime?
+  twoFactorSecret  String?
+  twoFactorEnabled Boolean   @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  sessions            Session[]
+  tokens              VerificationToken[]
+  checkIns            CheckIn[]
+  membershipEvents    MembershipEvent[]
+  prayerRequests      PrayerRequest[]
+  prayerInteractions  PrayerInteraction[]
+  prayerReplies       PrayerReply[]
+  registrations       Registration[]
+  orders              Order[]
+  donations           Donation[]
+  mediaSubmissions    MediaSubmission[]
+  reviewedSubmissions MediaSubmission[]    @relation("MediaReviewer")
+  ministryMemberships MinistryMembership[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  moderationCases     ModerationCase[]     @relation("ModerationReviewer")
+  consents            ConsentRecord[]
+
+  @@index([membershipStage, homeChurchId])
+  @@index([createdAt])
+  @@index([city, state])
+  @@map("users")
+}
+
+model Household {
+  id            String   @id @default(cuid())
+  name          String
+  primaryPhone  String?
+  addressStreet String?
+  neighborhood  String?
+  city          String?
+  state         String?
+  postalCode    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  members User[]
+
+  @@map("households")
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ipHash           String? // IP anonimizado (hash com sal) — LGPD
+  deviceLabel      String?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  revokedReason    String?
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+enum TokenPurpose {
+  VERIFICACAO_EMAIL
+  RESET_SENHA
+  CONVITE_EQUIPE
+  MAGIC_LINK
+  CONFIRMACAO_TELEFONE
+}
+
+model VerificationToken {
+  id         String       @id @default(cuid())
+  userId     String?
+  user       User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identifier String // email ou telefone
+  tokenHash  String       @unique
+  purpose    TokenPurpose
+  metadata   Json?
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  @@index([identifier, purpose])
+  @@map("verification_tokens")
+}
+
+model ConsentRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String // "privacidade", "imagem", "comunicacao"
+  version   String
+  granted   Boolean
+  ipHash    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, kind])
+  @@map("consent_records")
+}
+
+// ============================================================================
+//  2. CONGREGACOES, LOCAIS E CULTOS
+// ============================================================================
+
+enum ChurchStatus {
+  SEDE
+  CONGREGACAO
+  PONTO_DE_PREGACAO
+  MISSAO_INTERNACIONAL
+  INAUGURACAO_PREVISTA
+}
+
+model Church {
+  id         String       @id @default(cuid())
+  slug       String       @unique
+  name       String
+  status     ChurchStatus @default(CONGREGACAO)
+  official   Boolean      @default(true) // entra na contagem publica de "igrejas oficiais"
+  foundedAt  DateTime?
+  pastorName String?
+  coverUrl   String?
+  about      String?      @db.Text
+
+  venueId String?
+  venue   Venue?  @relation(fields: [venueId], references: [id], onDelete: SetNull)
+
+  countryCode String @default("BR")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  closedAt  DateTime?
+
+  users            User[]
+  serviceSchedules ServiceSchedule[]
+  ministries       Ministry[]
+  eventEditions    EventEdition[]
+  donations        Donation[]
+
+  @@index([official, status])
+  @@map("churches")
+}
+
+/// Local fisico com geocerca — usado para validar check-ins e fotos da midia.
+model Venue {
+  id              String  @id @default(cuid())
+  name            String
+  addressLine     String
+  neighborhood    String?
+  city            String
+  state           String
+  postalCode      String
+  countryCode     String  @default("BR")
+  latitude        Float
+  longitude       Float
+  /// Raio de tolerancia em metros para validacao geoespacial.
+  geofenceRadiusM Int     @default(350)
+  placeId         String? // referencia externa (Google/OSM)
+  notes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  churches           Church[]
+  serviceOccurrences ServiceOccurrence[]
+  eventEditions      EventEdition[]
+  mediaSubmissions   MediaSubmission[]
+
+  @@index([city, state])
+  @@map("venues")
+}
+
+enum ServiceKind {
+  CULTO_CELEBRACAO
+  CULTO_ORACAO
+  CULTO_ENSINO
+  ESCOLA_BIBLICA
+  CULTO_JOVENS
+  CULTO_INFANTIL
+  VIGILIA
+  CELULA
+}
+
+/// Grade semanal recorrente (ex.: Domingo 18h — Culto de Celebracao).
+model ServiceSchedule {
+  id          String      @id @default(cuid())
+  churchId    String
+  church      Church      @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  kind        ServiceKind
+  title       String
+  description String?
+  /// 0 = domingo ... 6 = sabado
+  weekday     Int
+  startTime   String // "18:00" (hora local America/Sao_Paulo)
+  endTime     String?
+  audience    String? // "Toda a familia", "Juventude"...
+  highlight   Boolean     @default(false)
+  active      Boolean     @default(true)
+  order       Int         @default(0)
+  color       String? // token visual no front
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  occurrences ServiceOccurrence[]
+
+  @@index([churchId, weekday, active])
+  @@map("service_schedules")
+}
+
+/// Instancia concreta de um culto (materializada pelo job semanal).
+model ServiceOccurrence {
+  id               String           @id @default(cuid())
+  scheduleId       String?
+  schedule         ServiceSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  venueId          String?
+  venue            Venue?           @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  title            String
+  startsAt         DateTime
+  endsAt           DateTime?
+  theme            String?
+  preacher         String?
+  /// Janela de tolerancia (minutos) para aceitar check-in antes/depois.
+  checkInWindowMin Int              @default(45)
+  attendanceCount  Int              @default(0)
+  canceled         Boolean          @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checkIns      CheckIn[]
+  checkInTokens CheckInToken[]
+
+  @@index([startsAt])
+  @@map("service_occurrences")
+}
+
+model Ministry {
+  id          String  @id @default(cuid())
+  churchId    String
+  church      Church  @relation(fields: [churchId], references: [id], onDelete: Cascade)
+  slug        String
+  name        String
+  description String? @db.Text
+  iconKey     String?
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships MinistryMembership[]
+
+  @@unique([churchId, slug])
+  @@map("ministries")
+}
+
+model MinistryMembership {
+  id         String    @id @default(cuid())
+  ministryId String
+  ministry   Ministry  @relation(fields: [ministryId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       String    @default("voluntario")
+  since      DateTime  @default(now())
+  until      DateTime?
+
+  @@unique([ministryId, userId])
+  @@map("ministry_memberships")
+}
+
+// ============================================================================
+//  3. PRESENCA & MOTOR DE MEMBRESIA
+// ============================================================================
+
+enum CheckInMethod {
+  QR_ROTATIVO // usuario escaneia o QR do totem (token de 60s)
+  QR_CARTEIRINHA // recepcao escaneia o QR do membro
+  NFC
+  GEOFENCE_APP // auto check-in por proximidade + confirmacao
+  MANUAL_SECRETARIA
+  IMPORTACAO_PLANILHA
+  CATRACA
+}
+
+enum CheckInStatus {
+  CONFIRMADO
+  PENDENTE
+  SUSPEITO // reprovou em alguma regra antifraude
+  REJEITADO
+  DUPLICADO
+}
+
+/// Registro de presenca. Uma unica presenca valida por pessoa/culto.
+model CheckIn {
+  id           String            @id @default(cuid())
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  occurrenceId String
+  occurrence   ServiceOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  method       CheckInMethod
+  status       CheckInStatus     @default(CONFIRMADO)
+
+  checkedInAt DateTime @default(now())
+  /// Coordenada capturada no momento do check-in (quando autorizada).
+  latitude    Float?
+  longitude   Float?
+  accuracyM   Float?
+  distanceM   Float? // distancia calculada ate a geocerca do local
+  deviceHash  String?
+  ipHash      String?
+
+  /// Score antifraude 0-100 (100 = confianca maxima).
+  trustScore   Int   @default(100)
+  trustSignals Json? // { geofence: true, tokenValido: true, dispositivoNovo: false, ... }
+
+  recordedById String? // quem registrou (secretaria/recepcao)
+  notes        String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, occurrenceId])
+  @@index([checkedInAt])
+  @@index([userId, status, checkedInAt])
+  @@map("check_ins")
+}
+
+/// Token rotativo exibido no totem/telao. Vida curta, uso multiplo, nonce assinado.
+model CheckInToken {
+  id           String            @id @default(cuid())
+  occurrenceId String
+  occurrence   ServiceOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  code         String            @unique
+  issuedAt     DateTime          @default(now())
+  expiresAt    DateTime
+  usedCount    Int               @default(0)
+  maxUses      Int               @default(2000)
+  revoked      Boolean           @default(false)
+
+  @@index([occurrenceId, expiresAt])
+  @@map("check_in_tokens")
+}
+
+enum MembershipEventType {
+  PRESENCA_REGISTRADA
+  GATILHO_ATINGIDO // >= N presencas no periodo
+  PROMOVIDO_A_MEMBRO
+  CONFIRMADO_PASTORAL
+  REVERTIDO
+  INATIVADO
+  REATIVADO
+  DESLIGADO
+  AJUSTE_MANUAL
+}
+
+/// Trilha de auditoria do motor de membresia (event sourcing leve).
+model MembershipEvent {
+  id        String              @id @default(cuid())
+  userId    String
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      MembershipEventType
+  fromStage MembershipStage?
+  toStage   MembershipStage?
+  /// Periodo avaliado (ex.: "2026-09") e evidencias.
+  period    String?
+  evidence  Json?
+  actorId   String? // null = automatico
+  automatic Boolean             @default(true)
+  note      String?
+  createdAt DateTime            @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@map("membership_events")
+}
+
+/// Parametros configuraveis da regra de promocao (sem deploy).
+model MembershipRule {
+  id                     String   @id @default(cuid())
+  key                    String   @unique @default("default")
+  /// Quantidade minima de presencas confirmadas no periodo.
+  minAttendance          Int      @default(5)
+  /// Janela em dias (30 = mes corrido / rolling window).
+  windowDays             Int      @default(30)
+  /// Exige confirmacao humana antes de virar MEMBRO.
+  requiresPastoralReview Boolean  @default(true)
+  /// Score antifraude minimo por presenca para contar no gatilho.
+  minTrustScore          Int      @default(70)
+  /// Dias sem presenca para marcar membro como inativo.
+  inactivityDays         Int      @default(120)
+  active                 Boolean  @default(true)
+  updatedAt              DateTime @updatedAt
+
+  @@map("membership_rules")
+}
+
+// ============================================================================
+//  4. MURAL DE ORACOES
+// ============================================================================
+
+enum PrayerCategory {
+  SAUDE
+  FAMILIA
+  TRABALHO_E_PROVISAO
+  ESTUDOS
+  ESPIRITUAL
+  RELACIONAMENTOS
+  LUTO
+  GRATIDAO
+  OUTRO
+}
+
+enum PrayerStatus {
+  PENDENTE_MODERACAO
+  PUBLICADO
+  RESPONDIDO // testemunho de resposta
+  ARQUIVADO
+  REMOVIDO
+}
+
+model PrayerRequest {
+  id          String         @id @default(cuid())
+  publicId    String         @unique @default(cuid())
+  /// null quando o pedido e 100% anonimo (nem o autor fica vinculado).
+  authorId    String?
+  author      User?          @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  /// Nome exibido: sempre "Anonimo" quando anonymous = true.
+  anonymous   Boolean        @default(true)
+  displayName String?
+  category    PrayerCategory @default(OUTRO)
+  title       String?
+  body        String         @db.Text
+  status      PrayerStatus   @default(PUBLICADO)
+
+  prayerCount Int @default(0) // "estou orando"
+  replyCount  Int @default(0)
+  viewCount   Int @default(0)
+
+  /// Impede spam/duplicidade sem guardar IP em claro.
+  authorFingerprint String?
+  language          String  @default("pt-BR")
+  urgent            Boolean @default(false)
+
+  /// Moderacao automatica: 0 = seguro, 1 = alto risco.
+  toxicityScore  Float?
+  autoFlagged    Boolean @default(false)
+  moderationNote String?
+
+  testimony   String?   @db.Text
+  answeredAt  DateTime?
+  publishedAt DateTime? @default(now())
+  expiresAt   DateTime? // rotatividade do mural
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  interactions PrayerInteraction[]
+  replies      PrayerReply[]
+  moderation   ModerationCase[]
+
+  @@index([status, publishedAt])
+  @@index([category, status])
+  @@index([authorFingerprint, createdAt])
+  @@map("prayer_requests")
+}
+
+enum PrayerInteractionKind {
+  ESTOU_ORANDO
+  AMEM
+  ABRACO
+}
+
+model PrayerInteraction {
+  id          String                @id @default(cuid())
+  requestId   String
+  request     PrayerRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// Para visitantes nao logados: hash estavel do dispositivo.
+  fingerprint String
+  kind        PrayerInteractionKind @default(ESTOU_ORANDO)
+  createdAt   DateTime              @default(now())
+
+  @@unique([requestId, fingerprint, kind])
+  @@index([requestId, createdAt])
+  @@map("prayer_interactions")
+}
+
+model PrayerReply {
+  id            String        @id @default(cuid())
+  requestId     String
+  request       PrayerRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  authorId      String?
+  author        User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  anonymous     Boolean       @default(true)
+  displayName   String?
+  body          String        @db.Text
+  fingerprint   String?
+  toxicityScore Float?
+  hidden        Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+
+  @@index([requestId, createdAt])
+  @@map("prayer_replies")
+}
+
+enum ModerationStatus {
+  ABERTO
+  APROVADO
+  REPROVADO
+  ESCALADO
+}
+
+model ModerationCase {
+  id              String           @id @default(cuid())
+  entityType      String // "prayer_request" | "prayer_reply" | "media_submission"
+  entityId        String
+  prayerRequestId String?
+  prayerRequest   PrayerRequest?   @relation(fields: [prayerRequestId], references: [id], onDelete: Cascade)
+  reason          String
+  signals         Json?
+  status          ModerationStatus @default(ABERTO)
+  reviewerId      String?
+  reviewer        User?            @relation("ModerationReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  decisionNote    String?
+  createdAt       DateTime         @default(now())
+  decidedAt       DateTime?
+
+  @@index([status, createdAt])
+  @@index([entityType, entityId])
+  @@map("moderation_cases")
+}
+
+// ============================================================================
+//  5. EVENTOS, EDICOES E INSCRICOES
+// ============================================================================
+
+enum EventCategory {
+  RETIRO
+  CONGRESSO
+  MISSAO
+  ACAMPAMENTO
+  CONFERENCIA
+  ENCONTRO_JOVENS
+  SEMINARIO
+  ACAO_SOCIAL
+}
+
+enum EventEditionStatus {
+  RASCUNHO
+  INSCRICOES_EM_BREVE
+  INSCRICOES_ABERTAS
+  LISTA_DE_ESPERA
+  INSCRICOES_ENCERRADAS
+  EM_ANDAMENTO
+  REALIZADO
+  CANCELADO
+}
+
+/// Evento "guarda-chuva" (ex.: Retiro de Carnaval) — atravessa varios anos.
+model Event {
+  id           String        @id @default(cuid())
+  slug         String        @unique
+  name         String
+  tagline      String?
+  category     EventCategory
+  summary      String        @db.Text
+  description  String        @db.Text
+  heroImageUrl String?
+  accentColor  String? // token da paleta
+  iconKey      String?
+  featured     Boolean       @default(false)
+  order        Int           @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  editions EventEdition[]
+
+  @@index([featured, order])
+  @@map("events")
+}
+
+/// Edicao anual concreta (Retiro de Carnaval 2027).
+model EventEdition {
+  id      String             @id @default(cuid())
+  eventId String
+  event   Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  slug    String             @unique
+  year    Int
+  title   String
+  theme   String?
+  status  EventEditionStatus @default(RASCUNHO)
+
+  startsAt             DateTime
+  endsAt               DateTime
+  registrationOpensAt  DateTime?
+  registrationClosesAt DateTime?
+
+  venueId       String?
+  venue         Venue?  @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  churchId      String?
+  church        Church? @relation(fields: [churchId], references: [id], onDelete: SetNull)
+  locationLabel String? // "Serra dos Orgaos - Teresopolis/RJ"
+  countryCode   String  @default("BR")
+
+  capacity      Int  @default(0)
+  soldCount     Int  @default(0)
+  waitlistCount Int  @default(0)
+  minAge        Int?
+  maxAge        Int?
+
+  coverImageUrl String?
+  trailerUrl    String?
+  highlights    Json? // ["Louvor com...", "Preletor..."]
+  schedule      Json? // programacao por dia
+  faq           Json?
+  whatToBring   Json?
+
+  /// Politica de reembolso em dias/percentuais.
+  refundPolicy    Json?
+  installmentsMax Int   @default(6)
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  ticketTiers      TicketTier[]
+  registrations    Registration[]
+  galleries        Gallery[]
+  orderItems       OrderItem[]
+  mediaSubmissions MediaSubmission[]
+
+  @@unique([eventId, year])
+  @@index([status, startsAt])
+  @@map("event_editions")
+}
+
+enum TicketAudience {
+  GERAL
+  MEMBRO
+  CRIANCA
+  ADOLESCENTE
+  JOVEM
+  CASAL
+  TERCEIRA_IDADE
+  VOLUNTARIO
+  CONVIDADO
+}
+
+model TicketTier {
+  id                String         @id @default(cuid())
+  editionId         String
+  edition           EventEdition   @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  slug              String
+  name              String
+  description       String?
+  audience          TicketAudience @default(GERAL)
+  /// Valores em centavos (nunca float para dinheiro).
+  priceCents        Int
+  currency          String         @default("BRL")
+  /// Lotes: preco muda conforme a data.
+  salesStartAt      DateTime?
+  salesEndAt        DateTime?
+  quantityTotal     Int            @default(0)
+  quantitySold      Int            @default(0)
+  minPerOrder       Int            @default(1)
+  maxPerOrder       Int            @default(10)
+  includesLodging   Boolean        @default(false)
+  includesMeals     Boolean        @default(false)
+  includesTransport Boolean        @default(false)
+  benefits          Json?
+  active            Boolean        @default(true)
+  order             Int            @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  registrations Registration[]
+  orderItems    OrderItem[]
+
+  @@unique([editionId, slug])
+  @@index([editionId, active])
+  @@map("ticket_tiers")
+}
+
+enum RegistrationStatus {
+  RASCUNHO
+  AGUARDANDO_PAGAMENTO
+  CONFIRMADA
+  LISTA_DE_ESPERA
+  CANCELADA
+  REEMBOLSADA
+  CHECK_IN_REALIZADO
+  NAO_COMPARECEU
+}
+
+model Registration {
+  id        String             @id @default(cuid())
+  code      String             @unique // MEB-RC27-0001
+  editionId String
+  edition   EventEdition       @relation(fields: [editionId], references: [id], onDelete: Cascade)
+  tierId    String
+  tier      TicketTier         @relation(fields: [tierId], references: [id], onDelete: Restrict)
+  userId    String?
+  user      User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orderId   String?
+  order     Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  status    RegistrationStatus @default(RASCUNHO)
+
+  participantName     String
+  participantEmail    String
+  participantPhone    String?
+  participantBirth    DateTime? @db.Date
+  participantDocLast4 String?
+  emergencyContact    String?
+  emergencyPhone      String?
+  healthNotes         String?   @db.Text
+  dietaryNotes        String?
+  shirtSize           String?
+  roomPreference      String?
+  isMinor             Boolean   @default(false)
+  guardianName        String?
+  guardianDocLast4    String?
+  guardianConsentAt   DateTime?
+
+  qrCodePayload String?   @unique
+  checkedInAt   DateTime?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([editionId, status])
+  @@index([userId])
+  @@map("registrations")
+}
+
+// ============================================================================
+//  6. FINANCEIRO: PEDIDOS, PAGAMENTOS, CONCILIACAO
+// ============================================================================
+
+enum OrderStatus {
+  ABERTO // carrinho
+  AGUARDANDO_PAGAMENTO
+  PAGO
+  PARCIALMENTE_PAGO
+  EXPIRADO
+  CANCELADO
+  ESTORNADO
+  EM_DISPUTA
+}
+
+enum PaymentMethod {
+  PIX
+  CARTAO_CREDITO
+  CARTAO_DEBITO
+  BOLETO
+  DINHEIRO
+  TRANSFERENCIA
+  CORTESIA
+}
+
+enum PaymentStatus {
+  CRIADO
+  PENDENTE
+  EM_ANALISE
+  AUTORIZADO
+  CAPTURADO
+  RECUSADO
+  CANCELADO
+  EXPIRADO
+  ESTORNADO_PARCIAL
+  ESTORNADO_TOTAL
+  CHARGEBACK
+}
+
+enum PaymentProvider {
+  MERCADO_PAGO
+  STRIPE
+  ASAAS
+  PAGARME
+  MANUAL
+  SANDBOX
+}
+
+model Order {
+  id     String      @id @default(cuid())
+  code   String      @unique // PED-2026-000123
+  userId String?
+  user   User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status OrderStatus @default(ABERTO)
+
+  /// Identidade do comprador quando nao ha conta.
+  buyerName     String
+  buyerEmail    String
+  buyerPhone    String?
+  buyerDocLast4 String?
+
+  currency      String @default("BRL")
+  subtotalCents Int    @default(0)
+  discountCents Int    @default(0)
+  feeCents      Int    @default(0) // taxa de servico repassada
+  totalCents    Int    @default(0)
+  paidCents     Int    @default(0)
+  refundedCents Int    @default(0)
+
+  couponId String?
+  coupon   Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+
+  /// Chave de idempotencia do checkout (evita pedido duplicado no double-click).
+  idempotencyKey String? @unique
+  /// Score antifraude do pedido.
+  riskScore      Int?
+  riskSignals    Json?
+
+  expiresAt    DateTime?
+  paidAt       DateTime?
+  canceledAt   DateTime?
+  cancelReason String?
+  metadata     Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items         OrderItem[]
+  payments      Payment[]
+  registrations Registration[]
+  ledgerEntries LedgerEntry[]
+  invoices      Invoice[]
+
+  @@index([status, createdAt])
+  @@index([buyerEmail])
+  @@map("orders")
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  editionId String?
+  edition   EventEdition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
+  tierId    String?
+  tier      TicketTier?   @relation(fields: [tierId], references: [id], onDelete: SetNull)
+
+  kind           String @default("INSCRICAO") // INSCRICAO | DOACAO | PRODUTO | TAXA
+  description    String
+  quantity       Int    @default(1)
+  unitPriceCents Int
+  totalCents     Int
+  metadata       Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model Coupon {
+  id                    String    @id @default(cuid())
+  code                  String    @unique
+  label                 String?
+  /// Percentual (0-100) OU valor fixo em centavos — apenas um deve ser usado.
+  percentOff            Int?
+  amountOffCents        Int?
+  currency              String    @default("BRL")
+  maxRedemptions        Int?
+  redemptions           Int       @default(0)
+  perUserLimit          Int       @default(1)
+  minOrderCents         Int       @default(0)
+  restrictedToEditionId String?
+  startsAt              DateTime?
+  endsAt                DateTime?
+  active                Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+
+  orders Order[]
+
+  @@map("coupons")
+}
+
+model Payment {
+  id       String          @id @default(cuid())
+  code     String          @unique
+  orderId  String
+  order    Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider PaymentProvider
+  method   PaymentMethod
+  status   PaymentStatus   @default(CRIADO)
+
+  amountCents      Int
+  currency         String @default("BRL")
+  capturedCents    Int    @default(0)
+  refundedCents    Int    @default(0)
+  /// Taxa cobrada pelo provedor (para conciliacao real de caixa).
+  providerFeeCents Int    @default(0)
+  netCents         Int    @default(0)
+
+  installments Int @default(1)
+
+  providerPaymentId String?   @unique
+  providerOrderId   String?
+  providerStatusRaw String?
+  /// PIX
+  pixQrCode         String?   @db.Text
+  pixQrCodeBase64   String?   @db.Text
+  pixExpiresAt      DateTime?
+  /// Boleto
+  boletoUrl         String?
+  boletoBarcode     String?
+  boletoDueDate     DateTime?
+  /// Cartao (somente dados nao sensiveis — PCI: nunca guardar PAN/CVV)
+  cardBrand         String?
+  cardLast4         String?
+  cardHolderName    String?
+  authorizationCode String?
+
+  idempotencyKey String? @unique
+  failureCode    String?
+  failureMessage String?
+  riskScore      Int?
+
+  authorizedAt DateTime?
+  capturedAt   DateTime?
+  failedAt     DateTime?
+  expiresAt    DateTime?
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attempts      PaymentAttempt[]
+  refunds       Refund[]
+  ledgerEntries LedgerEntry[]
+  donations     Donation[]
+
+  @@index([orderId, status])
+  @@index([provider, status])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+/// Cada tentativa/transicao de estado — auditoria completa do fluxo financeiro.
+model PaymentAttempt {
+  id              String         @id @default(cuid())
+  paymentId       String
+  payment         Payment        @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  fromStatus      PaymentStatus?
+  toStatus        PaymentStatus
+  source          String // "checkout" | "webhook" | "reconciliacao" | "manual"
+  requestPayload  Json?
+  responsePayload Json?
+  httpStatus      Int?
+  latencyMs       Int?
+  errorCode       String?
+  createdAt       DateTime       @default(now())
+
+  @@index([paymentId, createdAt])
+  @@map("payment_attempts")
+}
+
+enum RefundStatus {
+  SOLICITADO
+  APROVADO
+  PROCESSANDO
+  CONCLUIDO
+  RECUSADO
+}
+
+model Refund {
+  id               String       @id @default(cuid())
+  paymentId        String
+  payment          Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  amountCents      Int
+  reason           String
+  status           RefundStatus @default(SOLICITADO)
+  providerRefundId String?
+  requestedById    String?
+  approvedById     String?
+  requestedAt      DateTime     @default(now())
+  concludedAt      DateTime?
+  metadata         Json?
+
+  @@index([paymentId, status])
+  @@map("refunds")
+}
+
+enum LedgerDirection {
+  CREDITO
+  DEBITO
+}
+
+/// Razao contabil simplificado (partidas por evento financeiro).
+model LedgerEntry {
+  id          String          @id @default(cuid())
+  orderId     String?
+  order       Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  paymentId   String?
+  payment     Payment?        @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  account     String // "receita.eventos", "taxa.gateway", "estorno", "doacao.dizimo"
+  direction   LedgerDirection
+  amountCents Int
+  currency    String          @default("BRL")
+  description String
+  occurredAt  DateTime        @default(now())
+  metadata    Json?
+
+  @@index([account, occurredAt])
+  @@map("ledger_entries")
+}
+
+model Invoice {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  number     String   @unique
+  issuedAt   DateTime @default(now())
+  pdfUrl     String?
+  totalCents Int
+  metadata   Json?
+
+  @@map("invoices")
+}
+
+enum DonationKind {
+  DIZIMO
+  OFERTA
+  MISSOES
+  OBRA
+  ACAO_SOCIAL
+}
+
+model Donation {
+  id              String       @id @default(cuid())
+  userId          String?
+  user            User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  churchId        String?
+  church          Church?      @relation(fields: [churchId], references: [id], onDelete: SetNull)
+  paymentId       String?
+  payment         Payment?     @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  kind            DonationKind @default(OFERTA)
+  amountCents     Int
+  currency        String       @default("BRL")
+  recurring       Boolean      @default(false)
+  anonymous       Boolean      @default(false)
+  message         String?
+  competencyMonth String? // "2026-09"
+  createdAt       DateTime     @default(now())
+
+  @@index([churchId, createdAt])
+  @@map("donations")
+}
+
+/// Idempotencia e replay de webhooks dos provedores.
+model WebhookEvent {
+  id              String          @id @default(cuid())
+  provider        PaymentProvider
+  externalId      String
+  eventType       String
+  signature       String?
+  signatureValid  Boolean         @default(false)
+  payload         Json
+  headers         Json?
+  processedAt     DateTime?
+  processingError String?
+  attempts        Int             @default(0)
+  createdAt       DateTime        @default(now())
+
+  @@unique([provider, externalId])
+  @@index([processedAt])
+  @@map("webhook_events")
+}
+
+// ============================================================================
+//  7. MIDIA: SUBMISSAO GUIADA, VALIDACAO GEOESPACIAL E GALERIAS
+// ============================================================================
+
+enum MediaSubmissionStatus {
+  RASCUNHO
+  EM_VALIDACAO
+  APROVADO_AUTOMATICO
+  AGUARDANDO_REVISAO // caiu na fila humana
+  REPROVADO
+  PUBLICADO
+}
+
+enum MediaAssetStatus {
+  RECEBIDO
+  PROCESSANDO
+  VALIDADO
+  REPROVADO
+  PUBLICADO
+  ARQUIVADO
+}
+
+/// "Relatorio" preenchido pela equipe de midia (menus suspensos) + lote de fotos.
+model MediaSubmission {
+  id          String                @id @default(cuid())
+  code        String                @unique
+  submitterId String
+  submitter   User                  @relation(fields: [submitterId], references: [id], onDelete: Cascade)
+  status      MediaSubmissionStatus @default(RASCUNHO)
+
+  /// Campos do formulario guiado (selects).
+  editionId        String?
+  edition          EventEdition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
+  occurrenceLabel  String?
+  contextKind      String        @default("EVENTO") // EVENTO | CULTO | MISSAO | ACAO_SOCIAL
+  eventYear        Int?
+  capturedOn       DateTime?     @db.Date
+  venueId          String?
+  venue            Venue?        @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  photographer     String?
+  caption          String?
+  tags             String[]      @default([])
+  hasMinors        Boolean       @default(false)
+  consentConfirmed Boolean       @default(false)
+
+  assetCount    Int @default(0)
+  approvedCount Int @default(0)
+  rejectedCount Int @default(0)
+
+  /// Resultado consolidado da validacao (0-100).
+  validationScore  Int?
+  validationReport Json?
+  /// Mensagem amigavel devolvida a equipe quando reprovado.
+  feedbackMessage  String? @db.Text
+
+  reviewerId String?
+  reviewer   User?     @relation("MediaReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewedAt DateTime?
+  reviewNote String?
+
+  submittedAt DateTime?
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  assets MediaAsset[]
+
+  @@index([status, createdAt])
+  @@index([submitterId, createdAt])
+  @@map("media_submissions")
+}
+
+model MediaAsset {
+  id           String           @id @default(cuid())
+  submissionId String?
+  submission   MediaSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  status       MediaAssetStatus @default(RECEBIDO)
+
+  storageKey     String
+  url            String
+  thumbUrl       String?
+  blurhash       String?
+  mimeType       String
+  sizeBytes      Int
+  width          Int?
+  height         Int?
+  /// Hash perceptual para deteccao de duplicidade/reuso.
+  perceptualHash String?
+  sha256         String?
+
+  /// EXIF relevante
+  capturedAt        DateTime?
+  cameraMake        String?
+  cameraModel       String?
+  exifLatitude      Float?
+  exifLongitude     Float?
+  exifAltitude      Float?
+  hasGps            Boolean   @default(false)
+  /// Distancia (m) entre EXIF e a geocerca declarada.
+  distanceToVenueM  Float?
+  /// Resultado por sinal: gps, tempo, duplicidade, conteudo.
+  validationSignals Json?
+  validationScore   Int?
+  rejectionCode     String?
+  rejectionMessage  String?
+
+  /// Auto-tagging (visao computacional / heuristica).
+  autoTags     String[] @default([])
+  altText      String?
+  faceCount    Int?
+  qualityScore Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  galleryItems GalleryItem[]
+
+  @@index([status, createdAt])
+  @@index([perceptualHash])
+  @@map("media_assets")
+}
+
+model Gallery {
+  id        String        @id @default(cuid())
+  slug      String        @unique
+  title     String
+  subtitle  String?
+  editionId String?
+  edition   EventEdition? @relation(fields: [editionId], references: [id], onDelete: SetNull)
+  year      Int?
+  coverUrl  String?
+  published Boolean       @default(false)
+  order     Int           @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items GalleryItem[]
+
+  @@index([editionId, year])
+  @@map("galleries")
+}
+
+model GalleryItem {
+  id        String     @id @default(cuid())
+  galleryId String
+  gallery   Gallery    @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+  assetId   String
+  asset     MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  caption   String?
+  order     Int        @default(0)
+  featured  Boolean    @default(false)
+  createdAt DateTime   @default(now())
+
+  @@unique([galleryId, assetId])
+  @@map("gallery_items")
+}
+
+// ============================================================================
+//  8. CONTEUDO: VERSICULO DIARIO, CARROSSEL, AVISOS
+// ============================================================================
+
+model Verse {
+  id            String  @id @default(cuid())
+  reference     String // "Salmos 23:1"
+  book          String
+  chapter       Int
+  verse         String
+  text          String  @db.Text
+  version       String  @default("ARA")
+  theme         String?
+  /// Ordem estavel usada pelo algoritmo diario deterministico.
+  rotationIndex Int     @unique @default(autoincrement())
+  active        Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  schedules DailyVerse[]
+
+  @@index([active, rotationIndex])
+  @@map("verses")
+}
+
+/// Materializa o versiculo de cada dia (virada as 00:00 America/Sao_Paulo).
+model DailyVerse {
+  id         String   @id @default(cuid())
+  /// Data local (YYYY-MM-DD) em America/Sao_Paulo.
+  localDate  String   @unique
+  verseId    String
+  verse      Verse    @relation(fields: [verseId], references: [id], onDelete: Cascade)
+  reflection String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  @@index([localDate])
+  @@map("daily_verses")
+}
+
+model HeroSlide {
+  id             String    @id @default(cuid())
+  title          String
+  eyebrow        String?
+  subtitle       String?   @db.Text
+  imageUrl       String
+  focalPoint     String?   @default("center")
+  ctaLabel       String?
+  ctaHref        String?
+  secondaryLabel String?
+  secondaryHref  String?
+  badge          String?
+  order          Int       @default(0)
+  active         Boolean   @default(true)
+  startsAt       DateTime?
+  endsAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, order])
+  @@map("hero_slides")
+}
+
+model Announcement {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  excerpt     String?
+  body        String    @db.Text
+  coverUrl    String?
+  pinned      Boolean   @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([publishedAt])
+  @@map("announcements")
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  subject   String
+  message   String   @db.Text
+  handled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("contact_messages")
+}
+
+// ============================================================================
+//  9. NOTIFICACOES, ESTATISTICAS E OBSERVABILIDADE
+// ============================================================================
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP
+  PUSH
+}
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel   NotificationChannel @default(IN_APP)
+  template  String
+  title     String
+  body      String              @db.Text
+  href      String?
+  payload   Json?
+  readAt    DateTime?
+  sentAt    DateTime?
+  failedAt  DateTime?
+  error     String?
+  createdAt DateTime            @default(now())
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+/// Contadores publicos (membros, igrejas, paises...) com historico para animacao.
+model StatCounter {
+  id            String   @id @default(cuid())
+  key           String   @unique // "membros", "igrejas_oficiais", "paises", "vidas_alcancadas"
+  label         String
+  value         Int      @default(0)
+  previousValue Int      @default(0)
+  suffix        String?
+  iconKey       String?
+  order         Int      @default(0)
+  /// Fonte: "auto" (derivado do banco) ou "manual".
+  source        String   @default("auto")
+  updatedAt     DateTime @updatedAt
+
+  snapshots StatSnapshot[]
+
+  @@map("stat_counters")
+}
+
+model StatSnapshot {
+  id        String      @id @default(cuid())
+  counterId String
+  counter   StatCounter @relation(fields: [counterId], references: [id], onDelete: Cascade)
+  value     Int
+  takenAt   DateTime    @default(now())
+
+  @@index([counterId, takenAt])
+  @@map("stat_snapshots")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String // "user.login", "payment.captured", "media.rejected"
+  entityType String?
+  entityId   String?
+  before     Json?
+  after      Json?
+  ipHash     String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+/// Execucoes de jobs agendados (versiculo diario, membresia, conciliacao...).
+model JobRun {
+  id         String    @id @default(cuid())
+  jobKey     String
+  status     String    @default("RUNNING") // RUNNING | SUCCESS | FAILED
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  durationMs Int?
+  result     Json?
+  error      String?
+
+  @@index([jobKey, startedAt])
+  @@map("job_runs")
+}
+
+/// Feature flags / parametrizacao geral sem deploy.
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
